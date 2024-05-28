@@ -1,7 +1,7 @@
-# Hospital_Charges
+# Hospital Charges Machine Learning Project
 Predicting total hospital charges of critically ill patients via disease and several other health predictors. 
 
-The project will use the following regression models: 
+The project will use the following machine learning regression models: 
 - Marginal simple linear regressions
 - Multiple Linear Regression
   - polynomial terms and interaction terms will be tested
