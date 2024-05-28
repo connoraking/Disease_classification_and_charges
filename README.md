@@ -4,11 +4,15 @@ Predicting total hospital charges of critically ill patients via disease and sev
 The project will use the following regression models: 
 - Marginal simple linear regressions
 - Multiple Linear Regression
-- - polynomial terms and interaction terms will be tested
-- Regression Tree (with pruning)
-- Bagging (with variable importance)
-- Random Forest (with variable importance)
-- Boosting (including selecting the tuning paramter)
+  - polynomial terms and interaction terms will be tested
+- Regression Tree
+  - (with pruning)
+- Bagging
+  - (with variable importance)
+- Random Forest
+  - (with variable importance)
+- Boosting
+  - (including selecting the tuning paramter)
 - XGBoost
 - Neural Network
 
