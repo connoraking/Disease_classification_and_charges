@@ -1,0 +1,107 @@
+---
+title: "630 EDA"
+author: "Connor King"
+date: "2024-04-07"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(GGally)
+
+df <- read_csv("support2.csv")
+
+unique(df$dzclass) # k = 7
+```
+
+
+### NA's
+
+Visualizing NAs
+
+```{r}
+library(visdat)
+na_plot <- vis_dat(df)
+na_plot
+
+save(na_plot, file = "na_plot.RData")
+```
+
+
+```{r}
+print(sum(is.na(df$totcst)))
+print(sum(is.na(df$totmcst)))
+
+print(sum(is.na(df$totmcst)) - sum(is.na(df$totcst)))
+```
+
+
+## One-hot encoding
+
+```{r}
+df_numeric <- df[sapply(df, is.numeric)]
+
+df_categorical <- df[sapply(df, is.numeric)]
+```
+
+
+### Correlation
+
+Visualizing correlation b/w numeric columns
+
+```{r}
+df_numeric <- df[sapply(df, is.numeric)]
+
+corr_matrix <- cor(df_numeric, use = "pairwise.complete.obs") #ignores any na's between the 2 pairwise variables being compared
+
+library(corrplot)
+
+png(filename = "correlation_plot.png", width = 8, height = 6, res = 300, units = "in")
+
+corr_plot <- corrplot(corr_matrix, 
+         method = "color",  
+         type = "upper", 
+         order = "hclust",
+         diag = TRUE,
+         addCoef.col = TRUE,
+         number.cex = 0.35,
+         tl.srt = 60,
+         tl.cex = 0.4)
+
+corr_plot
+
+dev.off()
+```
+Correlation b/w our quantitative dependent `totmcst` and the other numeric columns.
+
+```{r}
+micro_cost_corr <- corr_matrix[, "totmcst"]
+
+micro_cost_corr <- micro_cost_corr[-which(names(micro_cost_corr) == "totcst")] 
+
+sort_corr <- sort(micro_cost_corr, decreasing = TRUE)
+
+print(sort_corr)
+```
+### `dzclass` Analysis
+
+```{r}
+ggplot(data = df) +
+  geom_bar(mapping = aes(x = dzclass))
+
+```
+```{r}
+ggplot(df, aes(x = dzclass, totcst)) +
+  geom_violin() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
+
+
+
+
+
+
+
