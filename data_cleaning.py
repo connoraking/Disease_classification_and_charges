@@ -40,4 +40,4 @@ cols_drop = cols_drop.tolist()
 df_processed = df_encoded.drop(columns = cols_drop)
 
 # Uploading as CSV
-df_processed.to_csv("./df_processed.csv")
+df_processed.to_csv("./df_processed.csv", index = False)
