@@ -6,13 +6,13 @@ The project will use the following regression models:
 - Multiple Linear Regression
   - polynomial terms and interaction terms will be tested
 - Regression Tree
-  - (with pruning)
+  - with pruning
 - Bagging
-  - (with variable importance)
+  - with variable importance
 - Random Forest
-  - (with variable importance)
+  - with variable importance
 - Boosting
-  - (including selecting the tuning paramter)
+  - including selecting the tuning paramter
 - XGBoost
 - Neural Network
 
