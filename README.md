@@ -1,6 +1,19 @@
 # Hospital_Charges
 Predicting total hospital charges of critically ill patients via disease and several other health predictors. 
 
+The project will use the following regression models: 
+- Marginal simple linear regressions
+- Multiple Linear Regression
+- - polynomial terms and interaction terms will be tested
+- Regression Tree (with pruning)
+- Bagging (with variable importance)
+- Random Forest (with variable importance)
+- Boosting (including selecting the tuning paramter)
+- XGBoost
+- Neural Network
+
+The project will also involve variable selection, shrinkage, and dimension reduction for linear models. This includes ridge regression, lasso regression, and principal components regression (PCR). Possibly forward stepwise and backwise stepwise selection
+
 **Currently being worked on**
 
 # Data Presentation
