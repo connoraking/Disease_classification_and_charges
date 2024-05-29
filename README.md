@@ -5,7 +5,10 @@ The project will use the following machine learning regression models (using `sc
 - Multiple Linear Regression
   - Weighted least squares remedial
 - Lasso Regression
+  - Cross-validation for optimal alpha hyperparamter
 - Ridge Regression
+  - Cross-validation for optimal alpha hyperparamter
+- Elastic Net Regression
 - Principal Component Regression
 
 The project will use the following tree based machine learning models (using `sci-kit lean` and `xgboost`: 
