@@ -1,14 +1,14 @@
 # Hospital Charges Machine Learning Project
 Predicting total hospital charges of critically ill patients via disease and several other health predictors. 
 
-The project will use the following machine learning regression models (using sci-kit learn): 
+The project will use the following machine learning regression models (using `sci-kit learn`): 
 - Multiple Linear Regression
 - Weighted least squares remedial
 - Lasso Regression
 - Ridge Regression
 - Principal Component Regression
 
-The project will use the following tree based machine learning models: 
+The project will use the following tree based machine learning models (using `sci-kit lean` and `xgboost`: 
 - Regression Tree
   - with pruning
 - Bagging
