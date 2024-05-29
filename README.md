@@ -3,7 +3,7 @@ Predicting total hospital charges of critically ill patients via disease and sev
 
 The project will use the following machine learning regression models (using `sci-kit learn`): 
 - Multiple Linear Regression
-- Weighted least squares remedial
+  - Weighted least squares remedial
 - Lasso Regression
 - Ridge Regression
 - Principal Component Regression
