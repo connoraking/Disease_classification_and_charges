@@ -1,0 +1,5 @@
+- re-run decision tree notebook b/c unencoded no.cor
+
+- add mae to linear regression models and decision tree
+
+- go into depth about feature importances in bagging and random forest
