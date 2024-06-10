@@ -2,8 +2,7 @@
 
 import os
 import pandas as pd
-import janitor 
-
+import janitor
 # Reading in data 
 
 path_project = "C:/Users/Conno/Documents/Career/Projects/Hospital_Charges"
@@ -20,9 +19,10 @@ df_c = df_c.dropna()
 
 
 # Some pre-processing of the variables, preparing for one-hot encoding
-cat_columns = ["num.co", "dzclass", "dzgroup"]
+cat_columns = ["dzclass", "dzgroup"] # removed no.co as it is an ordinarl variable
+
 df_c[cat_columns] = df_c[cat_columns].apply(lambda x: x.astype('category'))
-df_c["num.co"] = df_c["num.co"].astype("category") # converting to categorical variable (equivalent to factor in R)
+#df_c["num.co"] = df_c["num.co"].astype("category") # converting to categorical variable (equivalent to factor in R)
 df_c = df_c.drop(columns = ["totcst"]) # these columns use "charges" in their calculations
 
 # One-hot encoding the categorical predictors, removes first to avoid multicollinearity
