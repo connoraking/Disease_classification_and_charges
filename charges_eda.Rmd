@@ -1,0 +1,170 @@
+---
+title: "Charges EDA"
+author: "Connor King"
+date: "2024-06-12"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+
+```{r}
+suppressMessages(library(tidyverse))
+suppressMessages(library(ggExtra))
+suppressMessages(library(tidyverse))
+suppressMessages(library(ggpubr))
+```
+
+```{r}
+support2 <- read_csv("C:/Users/Conno/Documents/Career/Projects/Hospital_Charges/data/support2.csv")
+```
+# Distribution Plots
+
+```{r}
+# png("boxplot_charges.png", path = "./eda_plots")
+boxplot(support2$charges,
+        main = "Hospital Charges Box Plot",
+        xlab = "Hospital Charges",
+        horizontal = TRUE,
+        col = "skyblue")
+# dev.off()
+```
+
+
+```{r}
+ggplot(data = support2, aes(x = charges)) +
+  geom_boxplot(fill = "skyblue") +
+  labs(
+    title = "Hospital Charges Box plot",
+    x = "Hospital Charges"
+  ) +
+  theme_bw()
+```
+
+
+
+```{r}
+support2 %>% 
+  filter(charges < 250000) %>% 
+  ggplot(aes(x = charges, y = factor(dzgroup), fill = factor(dzclass))) +
+    geom_violin() +
+    labs(
+      title = "Hospital Charges Violin plot (< $250,000)",
+      x = "Hospital Charges",
+      y = "Dissease Sub Category",
+      fill = "Disease Category"
+    ) +
+    theme_bw()
+```
+
+
+Clearly, there are a significant amount of outliers.
+
+```{r}
+ggplot(data = support2, aes(x = charges, y = factor(dzgroup), fill = factor(dzclass))) +
+  geom_boxplot() +
+  labs(
+    title = "Hospital Charges Box plot",
+    x = "Hospital Charges",
+    y = "Dissease Sub Category",
+    fill = "Disease Category"
+  ) +
+  theme_bw()
+```
+```{r}
+support2 %>% 
+  ggplot(aes(x = charges)) +
+  geom_histogram(fill = "skyblue", color = "black") +
+  labs(x = "Hospital Charges", y = "Count", title = "Hospital Charges Histogram") +
+  theme_bw()
+```
+
+# Scatter Plots
+
+```{r}
+charges_slos_scatter <- support2 %>% 
+        ggplot(aes(x = slos, y = charges)) + 
+        geom_point(color = "blue", alpha = 0.2) +
+        geom_smooth(method = lm, color = "red") +
+        stat_cor(p.accuracy = 0.001, r.accuracy = 0.01) +
+        labs(
+          y = "Hospital Charges",
+          x = "Days from Study Entry to Discharge",
+          title = "Days in Study and Hospital Charges"
+        ) +
+        theme_bw()
+
+f_charges_slos_scatter <- ggMarginal(
+  charges_slos_scatter,
+  type = "histogram",
+  fill = "blue",
+  color = "black"
+)
+
+f_charges_slos_scatter
+ggsave(filename = "scatter_charges_slos.png", path = "./eda_plots")
+```
+
+
+```{r}
+charges_hday_scatter <- support2 %>% 
+        ggplot(aes(x = hday, y = charges)) + 
+        geom_point(color = "blue", alpha = 0.2) +
+        geom_smooth(method = lm, color = "red") +
+        stat_cor(p.accuracy = 0.001, r.accuracy = 0.01) +
+        labs(
+          y = "Hospital Charges",
+          x = "Days in Hospital at study entry",
+          title = "Days in Hospital at study entry and Hospital Charges"
+        ) +
+        theme_bw()
+
+ggMarginal(
+  charges_hday_scatter,
+  type = "histogram",
+  fill = "blue",
+  color = "black"
+)
+```
+
+```{r}
+charges_avtisst_scatter <- support2 %>% 
+        ggplot(aes(x = avtisst, y = charges)) + 
+        geom_point(color = "blue", alpha = 0.2) +
+        geom_smooth(method = lm, color = "red") +
+        stat_cor(p.accuracy = 0.001, r.accuracy = 0.01) +
+        labs(
+          y = "Hospital Charges",
+          x = "TISS Score",
+          title = "Days of follow-up and Hospital Charges"
+        ) +
+        theme_bw()
+
+f_charges_actisst_scatter <- ggMarginal(
+  charges_avtisst_scatter,
+  type = "histogram",
+  fill = "blue",
+  color = "black"
+)
+
+f_charges_actisst_scatter
+```
+
+
+# Quantitative EDA
+
+```{r}
+support2 %>%
+  group_by(dzclass) %>% 
+  summarize(mean_charges = mean(charges, na.rm = TRUE))
+```
+
+```{r}
+support2 %>% 
+  filter(charges > 1000000) %>% 
+  select(charges, everything()) %>%
+  arrange(desc(charges))
+```
+
