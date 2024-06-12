@@ -19,6 +19,8 @@ The project will use the following tree based machine learning models (using `sc
   - with variable importance
 - Random Forest
   - with variable importance
+- Bayesian Additive Regression Trees (BART)
+  - with variable importance
 - Boosting
   - including selecting the tuning paramter
 - XGBoost
