@@ -1,7 +1,6 @@
 ---
 title: "Charges EDA"
 author: "Connor King"
-date: "2024-06-12"
 output: html_document
 ---
 
@@ -23,13 +22,16 @@ support2 <- read_csv("C:/Users/Conno/Documents/Career/Projects/Hospital_Charges/
 # Distribution Plots
 
 ```{r}
-# png("boxplot_charges.png", path = "./eda_plots")
+# png("./eda_plots/box_charges.png", width = 1000, height = 600)
+
 boxplot(support2$charges,
         main = "Hospital Charges Box Plot",
         xlab = "Hospital Charges",
         horizontal = TRUE,
         col = "skyblue")
+
 # dev.off()
+
 ```
 
 
@@ -41,6 +43,8 @@ ggplot(data = support2, aes(x = charges)) +
     x = "Hospital Charges"
   ) +
   theme_bw()
+
+# ggsave(filename = "box_charges.png", path = "./eda_plots", bg = "white")
 ```
 
 
@@ -57,6 +61,8 @@ support2 %>%
       fill = "Disease Category"
     ) +
     theme_bw()
+
+ggsave(filename = "violin_charges_diseases.png", path = "./eda_plots", bg = "white")
 ```
 
 
@@ -72,13 +78,16 @@ ggplot(data = support2, aes(x = charges, y = factor(dzgroup), fill = factor(dzcl
     fill = "Disease Category"
   ) +
   theme_bw()
+
+ggsave(filename = "box_charges_diseases.png", path = "./eda_plots", bg = "white")
 ```
 ```{r}
 support2 %>% 
   ggplot(aes(x = charges)) +
-  geom_histogram(fill = "skyblue", color = "black") +
+  geom_histogram(fill = "blue", color = "black") +
   labs(x = "Hospital Charges", y = "Count", title = "Hospital Charges Histogram") +
   theme_bw()
+ggsave(filename = "histogram_charges.png", path = "./eda_plots", bg = "white")
 ```
 
 # Scatter Plots
@@ -94,7 +103,7 @@ charges_slos_scatter <- support2 %>%
           x = "Days from Study Entry to Discharge",
           title = "Days in Study and Hospital Charges"
         ) +
-        theme_bw()
+        theme_bw() 
 
 f_charges_slos_scatter <- ggMarginal(
   charges_slos_scatter,
@@ -104,7 +113,7 @@ f_charges_slos_scatter <- ggMarginal(
 )
 
 f_charges_slos_scatter
-ggsave(filename = "scatter_charges_slos.png", path = "./eda_plots")
+ggsave(filename = "scatter_charges_slos.png", path = "./eda_plots", bg = "white")
 ```
 
 
@@ -127,6 +136,8 @@ ggMarginal(
   fill = "blue",
   color = "black"
 )
+
+ggsave(filename = "scatter_charges_hday.png", path = "./eda_plots", bg = "white")
 ```
 
 ```{r}
@@ -150,15 +161,22 @@ f_charges_actisst_scatter <- ggMarginal(
 )
 
 f_charges_actisst_scatter
+
+ggsave(filename = "scatter_charges_avtisst.png", path = "./eda_plots", bg = "white")
 ```
 
 
 # Quantitative EDA
 
 ```{r}
+summary(support2$charges)
+```
+
+
+```{r}
 support2 %>%
   group_by(dzclass) %>% 
-  summarize(mean_charges = mean(charges, na.rm = TRUE))
+  summarize(mean_charges = mean(charges, na.rm = TRUE), mean_slos = mean(slos, na.rm = TRUE))
 ```
 
 ```{r}
@@ -168,3 +186,4 @@ support2 %>%
   arrange(desc(charges))
 ```
 
+The outliers don't seem to scream anything out of the ordinary in regards to the other variables so misinput is unlikely.
