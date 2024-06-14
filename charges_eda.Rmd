@@ -82,6 +82,22 @@ ggplot(data = support2, aes(x = charges, y = factor(dzgroup), fill = factor(dzcl
 ggsave(filename = "box_charges_diseases.png", path = "./eda_plots", bg = "white")
 ```
 ```{r}
+ggplot(data = support2, aes(x = slos, y = factor(dzgroup), fill = factor(dzclass))) +
+  geom_boxplot() +
+  labs(
+    title = "Hospital Charges Box plot",
+    x = "Days in Study",
+    y = "Dissease Sub Category",
+    fill = "Disease Category"
+  ) +
+  theme_bw()
+
+# ggsave(filename = "box_charges_diseases.png", path = "./eda_plots", bg = "white")
+```
+
+
+
+```{r}
 support2 %>% 
   ggplot(aes(x = charges)) +
   geom_histogram(fill = "blue", color = "black") +
@@ -182,7 +198,7 @@ support2 %>%
 ```{r}
 support2 %>% 
   filter(charges > 1000000) %>% 
-  select(charges, everything()) %>%
+  select(charges, slos, hday, everything()) %>%
   arrange(desc(charges))
 ```
 
