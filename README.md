@@ -28,7 +28,7 @@ The project will use the following **tree based** machine learning models (using
 The project will incorporate deep learning with `PyTorch`
 - Neural Network
 
-The project will also involve variable selection, shrinkage, and dimension reduction for linear models. This includes ridge regression, lasso regression, and principal components regression (PCR). Possibly forward stepwise and backwise stepwise selection
+This project features some mathematical introductions to the models, hyperparameter tuning via cross validation, feature importance and more.
 
 **Currently being worked on**
 
