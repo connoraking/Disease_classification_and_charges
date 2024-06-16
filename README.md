@@ -1,7 +1,7 @@
 # Hospital Charges Machine Learning Project
 Predicting total hospital charges of critically ill patients via disease and several other health predictors. 
 
-The project will use the following machine learning regression models (using `scikit-learn`): 
+The project will use the following machine learning **linear** regression models (using `scikit-learn`): 
 - Multiple Linear Regression
   - Weighted least squares remedial
   - Log transformation
@@ -12,7 +12,7 @@ The project will use the following machine learning regression models (using `sc
 - Elastic Net Regression
 - Principal Component Regression
 
-The project will use the following tree based machine learning models (using `scikit-learn` and `xgboost`: 
+The project will use the following **tree based** machine learning models (using `scikit-learn` and `xgboost`: 
 - Regression Tree
   - with pruning
 - Bagging
