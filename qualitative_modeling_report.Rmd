@@ -1,0 +1,1777 @@
+---
+title: "Qualitative Modeling"
+author: "Connor King"
+date: "2024-04-21"
+output:
+  html_document:
+    toc: true
+    theme: united
+---
+
+## Libraries
+
+```{r, include= FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+
+```{r}
+library(tidyverse)
+library(caret)
+library(MASS)
+library(nnet)
+#library(keras)
+library(e1071)
+```
+
+
+# Creating DataFrame for prediction
+
+```{r}
+df <- read_csv("df_preprocessed.csv")
+#df$dzgroup <- factor(df$dzgroup)
+```
+
+Our dependent qualitative is `dzclass` which represents the patient's sub category amongst ARF/MOSF w/Sepsis, CHF, COPD, Cirrhosis, Colon Cancer, Coma, Lung Cancer, MOSF w/Malig.
+
+```{r}
+df$dzclass %>% unique()
+```
+```{r}
+#y <- df$dzgroup
+y <- factor(df$dzclass)
+
+
+X <- df[sapply(df, is.numeric)] # predictors numeric, dummies and leaving one dummy out included
+X <- X[ , !colnames(X) %in% c("ca_no", "ca_yes", "num_co")] # removes predictor variables that say yes to cancer and factor variable num_Co
+```
+
+## Feature Selection
+
+
+```{r}
+#Corr_matrix <- cor(X)
+
+#HC <- findCorrelation(Corr_matrix, cutoff = 0.8) # finds variables that are 80% correlated or more with other variables
+#print(HC)
+```
+```{r}
+#colnames(X[, c(HC)])
+```
+These make sense given that there are other variables such as `surv6m`, `prgm6m`, etc. However I will keep `race_black`
+
+```{r}
+#colnames(X[, c(40)])
+```
+```{r}
+# removing highly correlated variables
+
+#X_c <- X[, -c(14, 19, 10, 21)]
+```
+
+
+## Train-Test Split 
+
+90-10 train-test split
+
+```{r}
+df_pred <- tibble(y, X)
+
+set.seed(32)
+
+train_idx <- sample(1:nrow(df_pred), size = round(0.9*nrow(df_pred)), replace= FALSE) 
+test_idx <- setdiff(1:nrow(df_pred), train_idx)
+
+train_data <- df_pred[train_idx, ]
+test_data <- df_pred[-train_idx, ]
+
+y_test <- test_data$y
+
+```
+
+```{r}
+constant_features <- sapply(train_data, function(x) length(unique(x)) == 1)
+
+# Print constant features to verify
+print(names(train_data)[constant_features])
+```
+*num_co_9* will be removed from the dataset as all the data is 0 (no patient has 9 or more simultaneous diseases)
+
+```{r}
+# removing num_co_9 indicator
+train_data <- train_data[, !constant_features]
+test_data <- test_data[, !constant_features] 
+
+y_test <- test_data$y
+
+# numeric predictors data
+train_non_binary <- train_data %>% select_if(~length(unique(.)) > 2)
+test_non_binary <- test_data %>% select_if(~length(unique(.)) > 2)
+```
+
+
+# KNN
+
+Modelling without binary variables
+
+```{r}
+set.seed(32)
+
+# creating a custom summary to track accuracy and error rate
+customSummary <- function(data, lev = NULL, model = NULL){
+  acc <- mean(data$obs == data$pred)
+  err = 1 - acc
+  out <- c(ACC = acc, ERR = err)
+  names(out) <- c("Accuracy", "Error Rate")
+  out
+}
+
+train_control <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = "final",
+  summaryFunction = customSummary
+)
+
+knn_fit <- train(
+  y ~ .,
+  data = train_non_binary,
+  method = "knn",
+  trControl = train_control,
+  tuneGrid = expand.grid(k = 1:50) # testing up to 50 neighbors
+)
+
+print(knn_fit)
+
+
+```
+
+
+```{r}
+res <- knn_fit$results
+
+min_k <- res %>% filter(`Error Rate` == min(`Error Rate`))
+
+knn_plot <-    ggplot(res, aes(x = k, y = `Error Rate`)) +
+      geom_line() +
+      geom_point() +
+      geom_point(data = min_k, aes(x = k, y = `Error Rate`), color = "green", shape = 4, size = 3, stroke = 2) +
+      labs(title = "10-fold CV for KNN") +
+      theme_bw()
+
+#ggsave("knn_plot.jpg", knn_plot)
+
+knn_plot
+```
+
+```{r}
+pred_test_knn <- predict(knn_fit, newdata = test_non_binary)
+
+y_test_nb <- test_non_binary$y
+
+knn_test_error <- sum(y_test_nb != pred_test_knn) / length(y_test_nb)
+
+
+print(knn_test_error)
+```
+
+#### Confusion Matrix
+
+```{r}
+cm_knn <- confusionMatrix(reference = factor(y_test_nb), data = factor(pred_test_knn))
+cm_knn
+```
+```{r}
+cm_knn_table <- cm_knn$table
+
+tpr <- fpr <- tnr <- fnr <- numeric(4)
+
+for (i in 1:4) {
+  tp <- cm_knn_table[i, i]
+  fn <- sum(cm_knn_table[i,]) - tp
+  fp <- sum(cm_knn_table[,i]) - tp
+  tn <- sum(cm_knn_table) - (tp + fn + fp)
+  
+  tpr[i] <- tp / (tp + fn)  # True Positive Rate
+  fpr[i] <- fp / (fp + tn)  # False Positive Rate
+  tnr[i] <- tn / (tn + fp)  # True Negative Rate
+  fnr[i] <- fn / (fn + tp)  # False Negative Rate
+}
+
+# Print the results
+cat("True Positive Rates (TPR):", tpr, "\n",
+    "False Positive Rates (FPR):", fpr, "\n",
+    "True Negative Rates (TNR):", tnr, "\n",
+    "False Negative Rates (FNR):", fnr, "\n")
+```
+
+This confusion matrix represents the performance of a K-Nearest Neighbors (KNN) model with $k = 41$ for classifying four medical conditions. The model achieves an overall accuracy of 61.08%, indicating moderate effectiveness. It performs best in accurately identifying Cancer with a sensitivity of 84.32% and a high specificity of 94.686%, followed by COPD/CHF/cirrhosis with a sensitivity of 50.68% and specificity of 79.53%. However, the model struggles significantly with the Coma category, failing to correctly identify any cases (sensitivity of 0%), indicating a major area of weakness. The performance across different conditions is highly variable, with decent predictive values for Cancer and COPD/CHF/cirrhosis but poor results for Coma, leading to an uneven capability in handling the different medical conditions.
+
+# LDA (Linear Discriminant Analysis)
+
+## Assumptions
+
+- Predictors $\boldsymbol{X}$ is drawn from a multivariate Gaussian distribution
+- Class specific multivariate mean vector and a common covariance matrix: $\Sigma_1 = \Sigma_2 = \dots = \Sigma_k = \Sigma$
+
+### Multivariate Normality
+
+We will use the *Mardias* test for multivariate normality and *Anderson-Darling* test for univariate normality from the `MVN` library . To test, we will omit the qualitative variables.
+
+```{r}
+numeric_predictors <- train_non_binary[, -1]
+
+mvn_lda <- MVN::mvn(data = numeric_predictors, mvnTest = "mardia") 
+
+print(mvn_lda)
+```
+
+None of the variables appear normal by statistical tests
+
+#### QQ plots
+
+```{r}
+
+long_data <- pivot_longer(numeric_predictors, cols = everything(), names_to = "variable", values_to = "value")
+
+lda_qq_plot <- long_data %>% 
+  ggplot(., aes(sample = value)) +
+  stat_qq() +
+  geom_qq_line(color = "red") +
+  facet_wrap(~variable, scales = 'free_y') +
+  labs(title = "QQ Plots of Predictors") +
+  theme_bw()
+
+lda_qq_plot
+```
+
+The QQ plots tend to agree with the statistical tests. However, we can see that some of the QQ plots are actually rather close to normality such as `sod`.
+
+#### Histograms
+
+```{r}
+
+lda_histogram_plot <- ggplot(long_data, aes(x = value)) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black") + 
+  facet_wrap(~variable, scales = 'free') + 
+  theme_bw() +  
+  labs(x = "Value", y = "Frequency", title = "Histograms of Predictors")
+
+print(lda_histogram_plot)
+
+```
+
+We can see that several variables are right skewed thus we will use log transformations for these to fit assumptions.
+
+### Transformations
+
+For transforming the data, we will use a log transformation if the skewness is greater than $1$ and use square transform if the skewness is less than $-1$. Here the skewness value is the third standardized moment: 
+
+$$ \tilde\mu_3 = \frac{E[(X-\mu)^3]}{(E[X-\mu])^{3/2}}$$
+
+```{r}
+for (p in 1:ncol(numeric_predictors)) {
+  if (any(numeric_predictors[[p]] <= 0)) {
+    cat("Predictor ", names(numeric_predictors[p]), " has 0 or negative values \n")
+  }
+}
+```
+Some predictors have negative values. Looking at the histograms, this is not immediately obvious. For predictors with negative or 0 values we will shift the data to the right by an amount of the absolute value of the minimum value.
+
+```{r}
+
+transform_predictors <- function(df) {
+  for (p in 1:ncol(df)) {
+    
+    skewness_val <- skewness(df[[p]]) # retrieves skewness value of column
+    
+    # right skewed -> log transform
+    if (skewness_val > 1){
+      
+      if (all(df[[p]] >= 0 )) { # checks if negative values
+        df[[p]] <- log(df[[p]] + 1)
+      } else {
+        df[[p]] <- df[[p]] + abs(min(df[[p]])) + 1 # shifting the data by the minimum value amount and then adding 1 b/c cannot take log of 0
+        df[[p]] <- log(df[[p]])
+      }
+      
+    } else if( skewness_val < - 1) { # left skew -> square transform
+      df[[p]] <- (df[[p]])^2
+    }
+  }
+  
+  return(df)
+}
+
+transformed_data <- transform_predictors(numeric_predictors)
+```
+
+
+
+```{r}
+# Plot histograms to check the new distributions
+long_data_transformed <- pivot_longer(transformed_data, cols = everything(), names_to = "variable", values_to = "value")
+
+lda_trans_histogram_plot <- ggplot(long_data_transformed, aes(x = value)) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black") +
+  facet_wrap(~variable, scales = 'free') +
+  labs(title = "Histograms of Transformed Predictors") +
+  theme_bw()
+
+lda_trans_histogram_plot
+
+```
+
+Some plots show that the transformation was satisfactory, for instance `wblc`, however, many are still not adequately normal from a visual perspective. We will proceed nonetheless
+
+#### QQ plot of transformed predictors
+
+```{r}
+
+lda_trans_qq_plot <- long_data_transformed %>% 
+  ggplot(., aes(sample = value)) +
+  stat_qq() +
+  geom_qq_line(color = "red") +
+  facet_wrap(~variable, scales = 'free_y') +
+  labs(title = "QQ Plots of Transformed Predictors") +
+  theme_bw()
+
+lda_trans_qq_plot
+```
+
+As shown, the variables are certainly more normalized but not all are "normal"
+
+### Equality of Covariance Matrices
+
+To test for the equality of Covariance matrices, we will employ the *Box's M test*. We will use the `biotools` library for this assumption
+
+```{r}
+boxM_res <- biotools::boxM(data = train_non_binary[, -1], group = train_non_binary$y)
+boxM_res
+```
+
+The null hypothesis of the Box M test states that all the group covariance matrices are equal. The p-value is extremely small which leads us to rejecting the null hypothesis and concluding that the assumption of equal covariance matrices for each class is violated.
+
+## Fitting Raw Data
+
+Raw data includes qualitative variables one hot encoded. Some of these variables have extremely low variance which causes errors. Predictors that have near zero variance will be removed for LDA fitting purposes (causes an error otherwise).
+
+```{r}
+nzv <- nearZeroVar(train_data)
+
+train_data_non0var <- train_data[, -nzv]
+test_data_non0var <- test_data[, -nzv]
+
+set.seed(32)
+
+train_control <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = "final")
+
+lda_raw_fit <- caret::train(y ~ ., data = train_data_non0var, method = "lda", trControl = train_control)
+```
+
+```{r}
+lda_raw_fit
+```
+
+```{r}
+pred_raw_lda <- predict(lda_raw_fit, newdata = test_data)
+
+lda_raw_test_error <- mean(y_test != pred_raw_lda)
+print(lda_raw_test_error)
+```
+
+#### Confusion Matrix Raw LDA
+
+```{r}
+cm_raw_lda <- confusionMatrix(reference = factor(y_test), data = factor(pred_raw_lda))
+cm_raw_lda
+```
+
+```{r}
+cm_raw_lda_table <- cm_raw_lda$table
+
+tpr <- fpr <- tnr <- fnr <- numeric(4)
+
+for (i in 1:4) {
+  tp <- cm_raw_lda_table[i, i]
+  fn <- sum(cm_raw_lda_table[i,]) - tp
+  fp <- sum(cm_raw_lda_table[,i]) - tp
+  tn <- sum(cm_raw_lda_table) - (tp + fn + fp)
+  
+  tpr[i] <- tp / (tp + fn)  # True Positive Rate
+  fpr[i] <- fp / (fp + tn)  # False Positive Rate
+  tnr[i] <- tn / (tn + fp)  # True Negative Rate
+  fnr[i] <- fn / (fn + tp)  # False Negative Rate
+}
+
+# Print the results
+cat("True Positive Rates (TPR):", tpr, "\n",
+    "False Positive Rates (FPR):", fpr, "\n",
+    "True Negative Rates (TNR):", tnr, "\n",
+    "False Negative Rates (FNR):", fnr, "\n")
+```
+
+## Fitting Original Non-Binary Data 
+
+```{r}
+# numeric predictors data
+train_non_binary <- train_data %>% select_if(~length(unique(.)) > 2)
+test_non_binary <- test_data %>% select_if(~length(unique(.)) > 2)
+
+nzv_non_binary <- nearZeroVar(train_non_binary)
+
+train_non_binary_non0var <- train_non_binary[, -nzv_non_binary]
+test_non_binary_non0var <- test_non_binary[, -nzv_non_binary]
+
+set.seed(32)
+
+train_control <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = "final"
+)
+
+lda_fit <- caret::train(y ~ ., data = train_non_binary, method = "lda", trControl = train_control) # trained on train split
+```
+
+```{r}
+lda_fit
+```
+
+```{r}
+pred_test_lda <- predict(lda_fit, newdata = test_non_binary)
+
+y_test_nb <- test_non_binary$y
+
+lda_test_error <- sum(y_test_nb != pred_test_lda) / length(y_test_nb)
+
+
+print(lda_test_error)
+```
+
+LDA has a much better error rate than KNN
+
+#### Confusion Matrix
+
+```{r}
+cm_lda <- confusionMatrix(reference = factor(y_test), data = factor(pred_test_lda))
+cm_lda
+```
+```{r}
+cm_lda_table <- cm_lda$table
+
+tpr <- fpr <- tnr <- fnr <- numeric(4)
+
+for (i in 1:4) {
+  tp <- cm_lda_table[i, i]
+  fn <- sum(cm_lda_table[i,]) - tp
+  fp <- sum(cm_lda_table[,i]) - tp
+  tn <- sum(cm_lda_table) - (tp + fn + fp)
+  
+  tpr[i] <- tp / (tp + fn)  # True Positive Rate
+  fpr[i] <- fp / (fp + tn)  # False Positive Rate
+  tnr[i] <- tn / (tn + fp)  # True Negative Rate
+  fnr[i] <- fn / (fn + tp)  # False Negative Rate
+}
+
+# Print the results
+cat("True Positive Rates (TPR):", tpr, "\n",
+    "False Positive Rates (FPR):", fpr, "\n",
+    "True Negative Rates (TNR):", tnr, "\n",
+    "False Negative Rates (FNR):", fnr, "\n")
+```
+
+
+## Fitting Transformed Data
+
+```{r}
+y <- train_non_binary$y
+train_non_binary_transformed <- tibble(y, transformed_data)
+```
+
+```{r}
+set.seed(32)
+
+train_control <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = "final"
+)
+
+lda_trans_fit <- train(y ~ ., data = train_non_binary_transformed, method = "lda", trControl = train_control) # trained on train split
+```
+
+```{r}
+lda_trans_fit
+```
+
+
+```{r}
+test_numeric_p <- test_non_binary[, -1]
+
+test_numeric_p_trans <- transform_predictors(test_numeric_p)
+
+y_test_nb <- test_data$y
+test_nb_trans <- tibble(y_test_nb, test_numeric_p_trans)
+```
+
+
+```{r}
+pred_test_lda_trans <- predict(lda_trans_fit, newdata = test_nb_trans)
+
+lda_trans_test_error <- sum(y_test_nb != pred_test_lda_trans) / length(y_test_nb)
+
+
+print(lda_trans_test_error)
+```
+
+The transformed data gave a marginally better result. 
+
+#### Confusion Matrix
+
+```{r}
+cm_trans_lda <- confusionMatrix(reference = factor(y_test), data = factor(pred_test_lda_trans))
+cm_trans_lda
+```
+
+```{r}
+cm_trans_lda_table <- cm_trans_lda$table
+
+tpr <- fpr <- tnr <- fnr <- numeric(4)
+
+for (i in 1:4) {
+  tp <- cm_trans_lda_table[i, i]
+  fn <- sum(cm_trans_lda_table[i,]) - tp
+  fp <- sum(cm_trans_lda_table[,i]) - tp
+  tn <- sum(cm_trans_lda_table) - (tp + fn + fp)
+  
+  tpr[i] <- tp / (tp + fn)  # True Positive Rate
+  fpr[i] <- fp / (fp + tn)  # False Positive Rate
+  tnr[i] <- tn / (tn + fp)  # True Negative Rate
+  fnr[i] <- fn / (fn + tp)  # False Negative Rate
+}
+
+# Print the results
+cat("True Positive Rates (TPR):", tpr, "\n",
+    "False Positive Rates (FPR):", fpr, "\n",
+    "True Negative Rates (TNR):", tnr, "\n",
+    "False Negative Rates (FNR):", fnr, "\n")
+```
+
+
+### LDA Conclusion
+
+The first model, which includes binary variables, shows the highest overall accuracy of 86.54%, indicating better classification performance, particularly for Cancer and COPD/CHF/cirrhosis with high sensitivity and specificity. The second model, excluding binary variables, displays a slight decrease in accuracy to 83.85%, with a notable drop in sensitivity for Coma and COPD/CHF/cirrhosis. The third model, which excludes binary variables and includes transformations for normality, has a slightly better accuracy of 84.47%, showing an improvement over the second model but still less effective than the first. This trend suggests that binary variables significantly contribute to the model's ability to classify conditions accurately, and while transformations help regain some accuracy, they do not compensate fully for the absence of binary variables.
+
+# QDA (Quadratic Discriminant Analysis)
+
+## Non-Binary Data
+
+```{r}
+set.seed(32)
+
+train_control <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = "final"
+)
+
+qda_fit <- caret::train(y ~ ., data = train_non_binary, method = "qda", trControl = train_control) # trained on train split
+```
+
+```{r}
+qda_fit
+```
+
+```{r}
+pred_test_qda <- predict(qda_fit, newdata = test_non_binary)
+
+y_test_nb <- test_non_binary$y
+
+qda_test_error <- sum(y_test_nb != pred_test_qda) / length(y_test_nb)
+
+
+print(qda_test_error)
+```
+
+#### Confusion Matrix
+
+```{r}
+cm_qda <- confusionMatrix(reference = factor(y_test), data = factor(pred_test_qda))
+cm_qda
+```
+
+```{r}
+cm_qda_table <- cm_qda$table
+
+tpr <- fpr <- tnr <- fnr <- numeric(4)
+
+for (i in 1:4) {
+  tp <- cm_qda_table[i, i]
+  fn <- sum(cm_qda_table[i,]) - tp
+  fp <- sum(cm_qda_table[,i]) - tp
+  tn <- sum(cm_qda_table) - (tp + fn + fp)
+  
+  tpr[i] <- tp / (tp + fn)  # True Positive Rate
+  fpr[i] <- fp / (fp + tn)  # False Positive Rate
+  tnr[i] <- tn / (tn + fp)  # True Negative Rate
+  fnr[i] <- fn / (fn + tp)  # False Negative Rate
+}
+
+# Print the results
+cat("True Positive Rates (TPR):", tpr, "\n",
+    "False Positive Rates (FPR):", fpr, "\n",
+    "True Negative Rates (TNR):", tnr, "\n",
+    "False Negative Rates (FNR):", fnr, "\n")
+```
+
+
+## Raw Data
+
+```{r}
+set.seed(32)
+
+train_control <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = "final"
+)
+
+qda_raw_fit <- caret::train(y ~ ., data = train_data_non0var, method = "qda", trControl = train_control) # trained on train split
+```
+
+```{r}
+qda_raw_fit
+```
+
+
+```{r}
+pred_raw_qda <- predict(qda_raw_fit, newdata = test_data_non0var)
+
+qda_raw_test_error <- mean(y_test != pred_raw_qda) 
+
+print(qda_raw_test_error)
+```
+
+#### Confusion Matrix
+
+```{r}
+cm_raw_qda <- confusionMatrix(reference = factor(y_test), data = factor(pred_raw_qda))
+cm_raw_qda
+```
+
+```{r}
+cm_raw_qda_table <- cm_raw_qda$table
+
+tpr <- fpr <- tnr <- fnr <- numeric(4)
+
+for (i in 1:4) {
+  tp <- cm_raw_qda_table[i, i]
+  fn <- sum(cm_raw_qda_table[i,]) - tp
+  fp <- sum(cm_raw_qda_table[,i]) - tp
+  tn <- sum(cm_raw_qda_table) - (tp + fn + fp)
+  
+  tpr[i] <- tp / (tp + fn)  # True Positive Rate
+  fpr[i] <- fp / (fp + tn)  # False Positive Rate
+  tnr[i] <- tn / (tn + fp)  # True Negative Rate
+  fnr[i] <- fn / (fn + tp)  # False Negative Rate
+}
+
+# Print the results
+cat("True Positive Rates (TPR):", tpr, "\n",
+    "False Positive Rates (FPR):", fpr, "\n",
+    "True Negative Rates (TNR):", tnr, "\n",
+    "False Negative Rates (FNR):", fnr, "\n")
+```
+
+
+### QDA Conclusion
+
+Comparing two Quadratic Discriminant Analysis (QDA) models, the first without binary variables achieves an overall accuracy of 67.49% and a kappa of 0.5298. Introducing binary variables in the second model improves overall accuracy to 72.05% and increases the kappa to 0.5932, indicating better predictive performance. Specifically, improvements are noted in the sensitivity for ARF/MOSF from 52.97% to 59.75%, and slight increases in sensitivity for Cancer, along with general enhancements in specificity across most classes. The inclusion of binary variables thus significantly enhances the model's ability to accurately classify conditions, particularly evident in the improved balanced accuracy scores across all classes.
+
+Interestingly, LDA performed much better than the QDA models despite LDA violating the equal covariance matrices assumptions, an assumption that QDA notably does not have.
+
+# Naive Bayes
+
+```{r}
+library(e1071)
+
+nb_model <- naiveBayes(y ~ ., data = train_data)
+
+summary(nb_model)
+```
+```{r}
+pred_nb <- predict(nb_model, newdata = test_data)
+
+nb_error <- mean(y_test != pred_nb)
+
+print(nb_error)
+```
+
+#### Confusion Matrix
+
+```{r}
+cm_nb <- confusionMatrix(reference = factor(y_test), data = factor(pred_nb))
+cm_nb
+```
+
+```{r}
+cm_nb_table <- cm_nb$table
+
+tpr <- fpr <- tnr <- fnr <- numeric(4)
+
+for (i in 1:4) {
+  tp <- cm_nb_table[i, i]
+  fn <- sum(cm_nb_table[i,]) - tp
+  fp <- sum(cm_nb_table[,i]) - tp
+  tn <- sum(cm_nb_table) - (tp + fn + fp)
+  
+  tpr[i] <- tp / (tp + fn)  # True Positive Rate
+  fpr[i] <- fp / (fp + tn)  # False Positive Rate
+  tnr[i] <- tn / (tn + fp)  # True Negative Rate
+  fnr[i] <- fn / (fn + tp)  # False Negative Rate
+}
+
+# Print the results
+cat("True Positive Rates (TPR):", tpr, "\n",
+    "False Positive Rates (FPR):", fpr, "\n",
+    "True Negative Rates (TNR):", tnr, "\n",
+    "False Negative Rates (FNR):", fnr, "\n")
+```
+
+
+The Naive Bayes model displays an overall accuracy of 34.78%, indicating a low predictive performance across the four medical conditions: ARF/MOSF, Cancer, Coma, and COPD/CHF/cirrhosis. It struggles particularly with ARF/MOSF and Coma, with high false positives and negatives leading to poor sensitivity (23.73% and 8.75%, respectively) and low detection rates. While it performs moderately better in identifying Cancer with a sensitivity of 89.86% and a high specificity of 65.94%, the model's ability to correctly diagnose COPD/CHF/cirrhosis is variable, evidenced by a moderate sensitivity (57.02%) but high specificity (97.32%). This variation in class performance results in a wide range of balanced accuracy scores, from a low of 56.19% for COPD/CHF/cirrhosis to a relatively high of 77.90% for Cancer, reflecting significant disparities in predictive accuracy across conditions.
+
+# Multinomial Logistic Regression
+
+- Makes no assumptions about distribution
+
+```{r}
+multi_logit <- multinom(y ~ ., data = train_data)
+
+pred_multi_logit <- predict(multi_logit, newdata = test_data)
+```
+
+```{r}
+y_test <- test_data$y
+
+multi_logit_error <- sum(y_test != pred_multi_logit) / length(y_test)
+
+print(multi_logit_error)
+```
+
+#### Confusion Matrix
+
+```{r}
+cm_mlogit <- confusionMatrix(reference = factor(y_test), data = factor(pred_multi_logit))
+cm_mlogit
+```
+
+```{r}
+cm_mlogit_table <- cm_mlogit$table
+
+tpr <- fpr <- tnr <- fnr <- numeric(4)
+
+for (i in 1:4) {
+  tp <- cm_mlogit_table[i, i]
+  fn <- sum(cm_mlogit_table[i,]) - tp
+  fp <- sum(cm_mlogit_table[,i]) - tp
+  tn <- sum(cm_mlogit_table) - (tp + fn + fp)
+  
+  tpr[i] <- tp / (tp + fn)  # True Positive Rate
+  fpr[i] <- fp / (fp + tn)  # False Positive Rate
+  tnr[i] <- tn / (tn + fp)  # True Negative Rate
+  fnr[i] <- fn / (fn + tp)  # False Negative Rate
+}
+
+# Print the results
+cat("True Positive Rates (TPR):", tpr, "\n",
+    "False Positive Rates (FPR):", fpr, "\n",
+    "True Negative Rates (TNR):", tnr, "\n",
+    "False Negative Rates (FNR):", fnr, "\n")
+```
+
+
+## Incorporating Interaction Terms and Transformations
+
+- From before, we saw that `charges` was a predictor that was nicely transformed with a log transform
+- We will use the `age` variable interacting with several other variables such as `meanbp`, `dementia`,`surv2m`, and `surv6m`
+
+```{r}
+multi_logit_enhanced <- multinom(y ~ death +
+                                   hospdead + slos + d_time + edu + scoma + log(charges + 1) + totcst + avtisst + sps + aps + surv2m + surv6m
+                                 + hday + diabetes + dementia + prg2m + prg6m + dnrday + meanbp + wblc + hrt + resp + temp + crea + sod + adlsc + sex_male + 
+                                   num_co_1 + num_co_2 + num_co_3 + num_co_4 + num_co_5 + num_co_6 + num_co_7 +
+                                   race_black + race_hispanic + race_other + race_white + `dnr_dnr_before_sadm` + `dnr_no_dnr` + sfdm2_adl_4_5_if_sur +
+                                   sfdm2_coma_or_intub + sfdm2_no_m2_and_sip_pres + sfdm2_sip_30 +
+                                   age * meanbp + age * dementia + age * surv2m + age * surv6m + age * prg2m + age * prg6m
+
+                                   , data = train_data)
+
+pred_multi_logit_enhanced <- predict(multi_logit_enhanced, newdata = test_data)
+
+```
+```{r}
+y_test <- test_data$y
+
+multi_logit_e_error <- sum(y_test != pred_multi_logit_enhanced) / length(y_test)
+
+print(multi_logit_e_error)
+```
+
+The enhanced multinomial model performed worse.
+
+#### Confusion Matrix
+
+```{r}
+cm_e_mlogit <- confusionMatrix(reference = factor(y_test), data = factor(pred_multi_logit_enhanced))
+cm_e_mlogit
+```
+
+```{r}
+cm_e_mlogit_table <- cm_e_mlogit$table
+
+tpr <- fpr <- tnr <- fnr <- numeric(4)
+
+for (i in 1:4) {
+  tp <- cm_e_mlogit_table[i, i]
+  fn <- sum(cm_e_mlogit_table[i,]) - tp
+  fp <- sum(cm_e_mlogit_table[,i]) - tp
+  tn <- sum(cm_e_mlogit_table) - (tp + fn + fp)
+  
+  tpr[i] <- tp / (tp + fn)  # True Positive Rate
+  fpr[i] <- fp / (fp + tn)  # False Positive Rate
+  tnr[i] <- tn / (tn + fp)  # True Negative Rate
+  fnr[i] <- fn / (fn + tp)  # False Negative Rate
+}
+
+# Print the results
+cat("True Positive Rates (TPR):", tpr, "\n",
+    "False Positive Rates (FPR):", fpr, "\n",
+    "True Negative Rates (TNR):", tnr, "\n",
+    "False Negative Rates (FNR):", fnr, "\n")
+```
+
+
+Comparing the two confusion matrices from the multinomial logistic models, the first matrix, representing the base model, shows an overall accuracy of 90.48%. The second matrix, which includes a transformed variable and interaction terms, shows a slightly decreased overall accuracy of 88.61% suggesting that the modifications slightly reduced the model's effectiveness. The first model has notably higher balanced accuracy across all conditions except for Cancer, where the second model shows a slight improvement. The changes in the second model, particularly in sensitivity for ARF/MOSF and specificity for COPD/CHF/cirrhosis, suggest that while the interaction terms and transformation might have improved the model's fit for Cancer, it may have compromised its general predictive ability slightly for other conditions.
+
+# Decision Tree
+
+```{r}
+library(tree)
+set.seed(32)
+
+tree_fit <- 
+  tree(
+     y ~ ., 
+    train_data, 
+    control = 
+      tree.control(
+        nrow(train_data), 
+        mincut = 2, 
+        minsize = 4, 
+        mindev = 0.002
+        )
+  )
+
+tree_plot <- plot(tree_fit)
+tree_plot
+#text(tree_train, cex = 1, col = "blue")
+```
+
+### Cross-Validation Pruning
+
+```{r}
+set.seed(32)
+
+cv_tree <- cv.tree(tree_fit, FUN = prune.misclass) # misclass - qualitative pruning
+
+optimal_size <- which.min(cv_tree$dev)
+
+pruned_tree <- prune.misclass(tree_fit, best = cv_tree$size[optimal_size])
+
+pruned_tree_plot <- plot(pruned_tree)
+pruned_tree_plot
+```
+
+### Prediction
+
+```{r}
+pred_tree <- predict(pruned_tree, newdata = test_data)
+
+pred_tree_tibble <- as_tibble(pred_tree)
+
+pred_tree_tibble <- pred_tree_tibble %>%
+  mutate(predicted_label = colnames(pred_tree_tibble)[max.col(., ties.method = "first")])
+
+head(pred_tree_tibble, 5)
+```
+
+```{r}
+tree_error <- mean(y_test !=pred_tree_tibble$predicted_label)
+
+tree_error
+```
+
+#### Confusion Matrix
+
+
+```{r}
+cm_tree <- confusionMatrix(reference = factor(y_test), data = factor(pred_tree_tibble$predicted_label))
+cm_tree
+```
+
+
+```{r}
+cm_tree_table <- cm_tree$table
+
+tpr <- fpr <- tnr <- fnr <- numeric(4)
+
+for (i in 1:4) {
+  tp <- cm_rf_table[i, i]
+  fn <- sum(cm_rf_table[i,]) - tp
+  fp <- sum(cm_rf_table[,i]) - tp
+  tn <- sum(cm_rf_table) - (tp + fn + fp)
+  
+  tpr[i] <- tp / (tp + fn)  # True Positive Rate
+  fpr[i] <- fp / (fp + tn)  # False Positive Rate
+  tnr[i] <- tn / (tn + fp)  # True Negative Rate
+  fnr[i] <- fn / (fn + tp)  # False Negative Rate
+}
+
+# Print the results
+cat("True Positive Rates (TPR):", tpr, "\n",
+    "False Positive Rates (FPR):", fpr, "\n",
+    "True Negative Rates (TNR):", tnr, "\n",
+    "False Negative Rates (FNR):", fnr, "\n")
+```
+
+
+# Bagging
+
+```{r}
+suppressMessages(library(randomForest))
+
+p <- ncol(train_data) - 1
+
+n_trees <- 1000
+
+set.seed(32)
+
+bag_train <-
+  randomForest(
+    y ~ .,
+    data = train_data,
+    ntree = n_trees,
+    mtry = p,
+    keep.forest = TRUE,
+    importance = TRUE
+  )
+```
+
+```{r}
+bag_train
+```
+
+Bagging resulted in a 0.1533 OOB error rate
+
+```{r, include = FALSE}
+# png("bagging_oob_error_plot.png", width=900, height=600)
+# 
+# plot(rf_train, main = "OOB Error Rate by Number of Trees")
+# # par(xpd=FALSE)
+# legend("right",  # positions the legend in the top right corner of the plot
+#        legend=c("Overall Error", "COMA", "COPD/CHF/Cirrhosis", "ARF/MOSF", "Cancer"),  # names of the lines
+#        col=c("black", "blue", "cyan", "red", "green"),  # colors must match those in the plot
+#        lty=1, bty = "n", cex = 1)
+# dev.off()
+```
+
+```{r}
+plot(bag_train, main = "OOB Error Rate by Number of Trees")
+# par(xpd=FALSE)
+legend("right",  # positions the legend in the top right corner of the plot
+       legend=c("Overall Error", "COMA", "COPD/CHF/Cirrhosis", "ARF/MOSF", "Cancer"),  # names of the lines
+       col=c("black", "blue", "cyan", "red", "green"),  # colors must match those in the plot
+       lty=1, bty = "n", cex = 0.7) 
+```
+
+
+## Feature Importance
+
+```{r}
+importance(bag_train)
+```
+
+
+In the bagging model, the variables *scoma* and *surv6m* stand out as the most critical predictors. *Scoma*, with a `MeanDecreaseAccuracy` of 144.187 and a `MeanDecreaseGini` of 168.973, is paramount, especially for predicting outcomes in the "Coma" class. Its high importance scores signify its strong influence on classification decisions, indicating that changes in coma scores significantly affect the model’s ability to accurately classify patient conditions. This suggests that coma status is a crucial clinical indicator in the prognosis and categorization of patient health states, particularly in severe cases.
+
+Similarly, *surv6m*, reflecting six-month survival probability, shows extremely high importance with a `MeanDecreaseAccuracy` of 214.077 and a `MeanDecreaseGini` of 412.385. Its prominence is especially noted in predicting outcomes for "Cancer" and "COPD/CHF/Cirrhosis" classes. High importance values in both accuracy and Gini indices underline its role in long-term survival predictions, implying that survival probabilities heavily influence the model’s predictions across these critical health conditions. This underscores the variable’s utility in assessing patient prognosis and informing healthcare strategies focused on improving survival rates.
+
+```{r}
+pred_bag <- predict(bag_train, newdata = test_data)
+
+bag_error <- mean(y_test != pred_bag)
+
+print(bag_error)
+```
+
+#### Confusion Matrix
+
+```{r}
+cm_bag <- confusionMatrix(reference = factor(y_test), data = factor(pred_bag))
+cm_bag
+```
+
+```{r}
+cm_bag_table <- cm_bag$table
+
+tpr <- fpr <- tnr <- fnr <- numeric(4)
+
+for (i in 1:4) {
+  tp <- cm_bag_table[i, i]
+  fn <- sum(cm_bag_table[i,]) - tp
+  fp <- sum(cm_bag_table[,i]) - tp
+  tn <- sum(cm_bag_table) - (tp + fn + fp)
+  
+  tpr[i] <- tp / (tp + fn)  # True Positive Rate
+  fpr[i] <- fp / (fp + tn)  # False Positive Rate
+  tnr[i] <- tn / (tn + fp)  # True Negative Rate
+  fnr[i] <- fn / (fn + tp)  # False Negative Rate
+}
+
+# Print the results
+cat("True Positive Rates (TPR):", tpr, "\n",
+    "False Positive Rates (FPR):", fpr, "\n",
+    "True Negative Rates (TNR):", tnr, "\n",
+    "False Negative Rates (FNR):", fnr, "\n")
+```
+
+
+The confusion matrix for the bagging models hows the performance, achieving an overall accuracy of 83.85%. The model performs best in identifying Cancer with high sensitivity (89.86%) and specificity (97.83%), reflected in its high balanced accuracy of 93.84%. ARF/MOSF also shows solid performance with a sensitivity of 91.95% but has lower specificity (80.97%). Coma detection is notably less effective, with the lowest sensitivity (46.875%) and balanced accuracy (72.994%), indicating significant challenges in correctly predicting this condition. COPD/CHF/cirrhosis has moderate sensitivity and specificity, with noticeable misclassifications as ARF/MOSF. Overall, while the model effectively identifies Cancer, its performance is uneven across other conditions, particularly struggling with Coma.
+
+
+# Random Forests
+
+```{r}
+set.seed(32)
+
+rf_train <-
+  randomForest(y ~ ., 
+               data = train_data, 
+               ntree = n_trees)
+
+rf_train
+```
+
+```{r, include = FALSE}
+# png("rf_oob_error_plot.png", width=900, height=600)
+# 
+# plot(rf_train, main = "OOB Error Rate by Number of Trees")
+# # par(xpd=FALSE)
+# legend("right",  # positions the legend in the top right corner of the plot
+#        legend=c("Overall Error", "COMA", "COPD/CHF/Cirrhosis", "ARF/MOSF", "Cancer"),  # names of the lines
+#        col=c("black", "blue", "cyan", "red", "green"),  # colors must match those in the plot
+#        lty=1, bty = "n", cex = 1)
+# dev.off()
+```
+
+```{r}
+plot(rf_train, main = "OOB Error Rate by Number of Trees")
+# par(xpd=FALSE)
+legend("right",  # positions the legend in the top right corner of the plot
+       legend=c("Overall Error", "COMA", "COPD/CHF/Cirrhosis", "ARF/MOSF", "Cancer"),  # names of the lines
+       col=c("black", "blue", "cyan", "red", "green"),  # colors must match those in the plot
+       lty=1, bty = "n", cex = 0.8) 
+```
+
+
+The random forest model has a worse OOB performance than the bagging model.
+
+```{r}
+importance(rf_train)
+```
+
+A higher value of `MeanDecreaseGini` is better, thus in the `RandomForests` model, *age*, *death*, *hospDead*, and *slos* were all the most important predictors. These results are pretty different than bagging.
+
+```{r}
+pred_rf <- predict(rf_train, newdata = test_data)
+
+rf_error <- mean(y_test != pred_rf)
+
+print(rf_error)
+```
+
+#### Confusion Matrix
+
+```{r}
+cm_rf <- confusionMatrix(reference = factor(y_test), data = factor(pred_rf))
+cm_rf
+```
+
+```{r}
+cm_rf_table <- cm_rf$table
+
+tpr <- fpr <- tnr <- fnr <- numeric(4)
+
+for (i in 1:4) {
+  tp <- cm_rf_table[i, i]
+  fn <- sum(cm_rf_table[i,]) - tp
+  fp <- sum(cm_rf_table[,i]) - tp
+  tn <- sum(cm_rf_table) - (tp + fn + fp)
+  
+  tpr[i] <- tp / (tp + fn)  # True Positive Rate
+  fpr[i] <- fp / (fp + tn)  # False Positive Rate
+  tnr[i] <- tn / (tn + fp)  # True Negative Rate
+  fnr[i] <- fn / (fn + tp)  # False Negative Rate
+}
+
+# Print the results
+cat("True Positive Rates (TPR):", tpr, "\n",
+    "False Positive Rates (FPR):", fpr, "\n",
+    "True Negative Rates (TNR):", tnr, "\n",
+    "False Negative Rates (FNR):", fnr, "\n")
+```
+
+
+The confusion matrix reflects the performance of our Random Forest model with an overall accuracy of 79.3%. The model excels at detecting Cancer, achieving high sensitivity (84.06%) and specificity (98.55%), resulting in a balanced accuracy of 91.30%. However, it underperforms in detecting Coma, evidenced by low sensitivity (28.125%) but very high specificity (99.557%), suggesting it rarely mislabels other conditions as Coma but struggles to identify actual cases of Coma. The model demonstrates moderate effectiveness for ARF/MOSF and COPD/CHF/cirrhosis, with some issues in overclassifying COPD/CHF/cirrhosis as ARF/MOSF, indicating potential areas for model refinement.
+
+# Boosting
+
+These variables have near zero variance which adds noise and could potentially harm the performance of the model, especially boosting. For boosting, we will remove these features that have near zero variance
+
+```{r}
+nzv <- nearZeroVar(train_data)
+
+train_data_non0var <- train_data[, -nzv]
+```
+
+I will utilize parallel processing to speed up the training process
+
+```{r}
+set.seed(32)
+#library(gbm3)
+
+library(doParallel)
+
+numCores <- detectCores() - 1
+cl <- makeCluster(numCores)
+registerDoParallel(cl)
+n_trees <- 1000
+
+boost_grid <- expand.grid(interaction.depth = c(2, 4, 8), # 4 is used in textbook
+                          n.trees = n_trees,
+                          shrinkage = c(0.4, 0.2, 0.1, 0.01, 0.001), # small number of cv showed 0.10 best so throwing in 0.2 to see if it'll decrease
+                          n.minobsinnode = 20 # min observations in each node
+                          )
+
+fitControl <- trainControl(
+  method = "cv",
+  number = 5, # 5 fold
+  allowParallel = TRUE # parallel processing
+  )
+
+boost_model <- caret::train(y ~ ., data = train_data_non0var,
+                     method = "gbm",
+                     trControl = fitControl,
+                     tuneGrid = boost_grid,
+                     verbose = FALSE)
+
+stopCluster(cl)
+registerDoSEQ()
+```
+
+```{r}
+boost_plot <- plot(boost_model)  
+boost_plot
+```
+
+```{r}
+boost_model
+```
+
+
+```{r}
+pred_boost <- predict(boost_model, newdata = test_data_non0var)
+
+boost_error <- mean(y_test != pred_boost)
+
+print(boost_error)
+```
+
+#### Confusion Matrix
+
+```{r}
+cm_boost <- confusionMatrix(reference = factor(y_test), data = factor(pred_boost))
+cm_boost
+```
+
+```{r}
+cm_boost_table <- cm_boost$table
+
+tpr <- fpr <- tnr <- fnr <- numeric(4)
+
+for (i in 1:4) {
+  tp <- cm_boost_table[i, i]
+  fn <- sum(cm_boost_table[i,]) - tp
+  fp <- sum(cm_boost_table[,i]) - tp
+  tn <- sum(cm_boost_table) - (tp + fn + fp)
+  
+  tpr[i] <- tp / (tp + fn)  # True Positive Rate
+  fpr[i] <- fp / (fp + tn)  # False Positive Rate
+  tnr[i] <- tn / (tn + fp)  # True Negative Rate
+  fnr[i] <- fn / (fn + tp)  # False Negative Rate
+}
+
+# Print the results
+cat("True Positive Rates (TPR):", tpr, "\n",
+    "False Positive Rates (FPR):", fpr, "\n",
+    "True Negative Rates (TNR):", tnr, "\n",
+    "False Negative Rates (FNR):", fnr, "\n")
+```
+
+
+Boosting's confusion matrix displays the performance with an overall accuracy of 96.55%, which has easily been the highest so far, beating out the multinomial logistic model. Each class shows high sensitivity, particularly for ARF/MOSF and COPD/CHF/cirrhosis, at 98.73% and 99.32%, respectively. Specificity is also high across all classes, ensuring the model effectively identifies negatives. Coma detection has the lowest sensitivity at 59.375%, suggesting a relatively higher rate of missed true positives for this class. The balanced accuracy ranges from 79.355% for Coma to 99.21% for COPD/CHF/cirrhosis, reflecting some variability in performance across different conditions but generally indicating a robust model.
+
+# Extreme Gradient Boosting
+
+We decided to incorporate XGBoost into our analysis, despite it not being a mandated part of the curriculum. This decision was driven by XGBoost's prominent standing in the field of data science, particularly for its exceptional performance with tabular datasets. XGBoost, an extension of the gradient boosting framework we covered in class, is renowned for its efficiency and capability in handling various types of predictive modeling challenges. This advanced algorithm enhances traditional boosting techniques through its sophisticated engineering, which includes handling sparse data, tree pruning, and regularization, among other features. Integrating XGBoost allowed us to explore its powerful ensemble learning capabilities and provided a deeper understanding of its practical applications and superiority in predictive accuracy, making it a valuable addition to the project and an insightful extension of the concepts learned in class.
+
+For boosting we will utilize extreme gradient boosting from the `xgboost` library
+
+```{r}
+suppressMessages(library(xgboost))
+
+train_data_numeric_y <- train_data
+train_data_numeric_y$y <- as.integer(train_data$y) - 1
+
+test_data_numeric_y <- test_data
+test_data_numeric_y$y <- as.integer(test_data$y) - 1
+
+#train_data$y_integer <- as.integer(train_data$y) - 1
+
+X_train = as.matrix(train_data_numeric_y[, -1])
+y_train = as.matrix(train_data_numeric_y[, 1])
+
+X_test = as.matrix(test_data_numeric_y[, -1])
+y_test = as.matrix(test_data_numeric_y[, 1])
+
+# xgboost matrix type
+xgb_train <- xgb.DMatrix(data = X_train, label = y_train)
+xgb_test <- xgb.DMatrix(data = X_test, label = y_test)
+
+```
+
+We will use cross validation for the best parameter tuning
+
+```{r}
+k <- length(unique(train_data_numeric_y$y))
+set.seed(32)
+
+
+xgb_params <- list(
+  "objective" = "multi:softprob",
+  "eval_metric" = "mlogloss",
+  "num_class" = k
+)
+nround <- 150
+cv.nfold <- 10
+
+xgb_model <- xgb.cv(
+  params = xgb_params,
+  data = xgb_train,
+  nrounds = nround,
+  nfold = cv.nfold,
+  verbose = FALSE,
+  prediction = TRUE
+)
+
+```
+
+## Evaluation Log
+
+
+```{r}
+# Accessing the evaluation log
+eval_log <- xgb_model$evaluation_log
+min_test_loss <- eval_log %>% filter(test_mlogloss_mean == min(test_mlogloss_mean))
+min_train_loss <- eval_log %>% filter(train_mlogloss_mean == min(train_mlogloss_mean))
+
+# Plotting train vs test log loss
+xgb_plot <- ggplot(data = eval_log, aes(x = iter)) +
+  geom_line(aes(y = train_mlogloss_mean, colour = "Training")) +
+  geom_line(aes(y = test_mlogloss_mean, colour = "Validation")) +
+  geom_point(data = min_test_loss, aes(x = iter, y = test_mlogloss_mean), color = "green", shape = 4, size = 3, stroke = 2) +
+  geom_point(data = min_train_loss, aes(x = iter, y = train_mlogloss_mean), color = "green", shape = 4, size = 3, stroke = 2) +
+  labs(title = "Training vs Validation Loss for 10 fold XGBoost Cross-Validation", x = "Iteration", y = "Log Loss") +
+  theme_bw()
+
+xgb_plot
+
+```
+
+
+```{r}
+# Finding the iteration with the minimum validation log loss
+best_nrounds <- eval_log[[which.min(eval_log$test_mlogloss_mean), "iter"]]
+print(best_nrounds)
+
+```
+```{r}
+xgb_final_model <- 
+  xgb.train(
+    params = xgb_params,
+    data = xgb_train,
+    nrounds = best_nrounds
+  )
+```
+
+
+```{r}
+pred_xgb <- predict(xgb_final_model, newdata = xgb_test)
+
+n_predictions <- length(pred_xgb) / k
+
+xgb_pred_tibble <- matrix(pred_xgb, ncol = k, byrow = TRUE) %>% 
+  as_tibble()
+
+colnames(xgb_pred_tibble) <- levels(train_data$y)
+
+xgb_pred_tibble <- xgb_pred_tibble %>%
+  mutate(predicted_label = colnames(xgb_pred_tibble)[max.col(., ties.method = "first")]) # finds max position in each row, ties.method determines if same value
+
+print(head(xgb_pred_tibble, 5))
+```
+
+The resulting tibble gives the probabilities of each class.
+
+### Test Set Error Rate
+
+```{r}
+y_test <- test_data$y
+
+xgb_error <- mean(y_test != xgb_pred_tibble$predicted_label)
+
+print(xgb_error)
+```
+
+#### Confusion Matrix
+
+```{r}
+cm_xgb <- confusionMatrix(reference = factor(y_test), data = factor(xgb_pred_tibble$predicted_label))
+cm_xgb
+```
+
+```{r}
+cm_xgb_table <- cm_xgb$table
+
+tpr <- fpr <- tnr <- fnr <- numeric(4)
+
+for (i in 1:4) {
+  tp <- cm_xgb_table[i, i]
+  fn <- sum(cm_xgb_table[i,]) - tp
+  fp <- sum(cm_xgb_table[,i]) - tp
+  tn <- sum(cm_xgb_table) - (tp + fn + fp)
+  
+  tpr[i] <- tp / (tp + fn)  # True Positive Rate
+  fpr[i] <- fp / (fp + tn)  # False Positive Rate
+  tnr[i] <- tn / (tn + fp)  # True Negative Rate
+  fnr[i] <- fn / (fn + tp)  # False Negative Rate
+}
+
+# Print the results
+cat("True Positive Rates (TPR):", tpr, "\n",
+    "False Positive Rates (FPR):", fpr, "\n",
+    "True Negative Rates (TNR):", tnr, "\n",
+    "False Negative Rates (FNR):", fnr, "\n")
+```
+
+
+This confusion matrix for an XGBoost model shows an overall accuracy of 94%, indicating strong performance across four classes (ARF/MOSF, Cancer, Coma, and COPD/CHF/cirrhosis). Class-specific performance varies, with high sensitivity and specificity observed particularly for ARF/MOSF (98.73% and 91.90%) and COPD/CHF/cirrhosis (97.26% and 98.22%). However, Coma class has a relatively lower sensitivity at 56.25%, suggesting some challenges in accurately identifying all true cases. This is because of the previously discussed unequal class representation in the dataset. Overall, the model demonstrates effective and reliable predictive capabilities, with particular strengths in specific classes but room for improvement in detecting Coma cases.
+
+# Neural Networks
+
+```{r}
+library(keras)
+library(tensorflow)
+```
+
+## Data Preprocessing
+
+```{r}
+
+nzv <- nearZeroVar(train_data)
+
+train_data_non0var <- train_data[, -nzv]
+test_data_non0var <- test_data[, -nzv]
+
+x_train_non0var <- as.matrix(train_data_non0var[, -1])
+
+# excluding columns with near zero variance and scaling, must use same scaling parameters in test set as training set
+x_train_non0var_mean <- apply(x_train_non0var, 2, mean)
+x_train_non0var_sd <- apply(x_train_non0var, 2, sd)
+
+x_train_non0var_scaled <- scale(x_train_non0var, center = x_train_non0var_mean, scale = x_train_non0var_sd)
+
+input_shape_non0var <- ncol(x_train_non0var)
+
+# same scaling parameters used in training set must be applied for training set (data leakage)
+x_test_non0var <- as.matrix(test_data_non0var[, -1])
+x_test_non0var_scaled <- scale(x_test_non0var, center = x_train_non0var_mean, scale = x_train_non0var_sd)
+
+y_test_integer <- as.integer(y_test) - 1
+
+y_train <- train_data$y
+
+y_train_integer <- as.integer(train_data$y) - 1
+y_test_integer <- as.integer(test_data$y) - 1
+
+y_train_encoded <- to_categorical(y_train_integer)
+```
+
+## Neural Network Architecture
+
+The final architecture used has 2 layers with 8 nodes and no dropout layers. The input layer has 38 nodes representing the scaled columns with variance *not* near 0. For $\boldsymbol{X_{train}}$, the dataframe that omit the columns with near 0 variance as well as scaling was used for training. Attempts with the regular training data $X$ were unsuccessful even when scaled. For the testing set, $\boldsymbol{X_{test}}$ was scaled with the same scaling parameters as $\boldsymbol{X_{train}}$ as it would be a procedural error that can lead to inconsistent data representation and misleading results.
+
+Neural Networks are not easily reproducible despite setting an R seed and a TensforFlow seed. Thus we have saved data from a run because otherwise the results change every time the RMarkdown file is knit.
+
+
+```{r}
+modelnn0 <- keras_model_sequential()
+modelnn0 %>% 
+  layer_dense(units = 8, activation = "relu", # layer 1
+              input_shape = input_shape_non0var) %>% 
+  layer_dense(units = 8, activation = "relu", # layer 1
+              input_shape = input_shape_non0var) %>% 
+  layer_dense(units = 4, activation = "softmax")
+
+summary(modelnn0)
+```
+
+![Neural Network Architecture Visualization](./nn_architecture.png)
+
+```{r}
+
+library(deepviz)
+library(magrittr)
+
+nn_architecure_plot <- modelnn %>% plot_model()
+nn_architecure_plot
+```
+
+### Neural Network Training
+
+The loss function was multiclass categorical cross entropy:
+$$-\sum_{c=1}^My_{o,c}\log(p_{o,c})$$
+
+```{r}
+
+set.seed(32)
+tensorflow::tf$random$set_seed(32) # need to also set seed for tensorflow for reproducability
+
+early_stop <- callback_early_stopping(
+  monitor = "val_loss",
+  patience = 50,
+  restore_best_weights = TRUE
+)
+
+modelnn0 %>% 
+  compile(
+    loss = "categorical_crossentropy",
+    optimizer = optimizer_rmsprop(),
+    metrics = "accuracy"
+  )
+
+history0 <-
+  modelnn0 %>% 
+  fit(
+    x_train_non0var_scaled,
+    y_train_encoded,
+    epochs = 300,
+    batch_size = 50,
+    validation_split = 0.2,
+    callbacks = list(early_stop),
+    #class_weight = class_weights,
+    verbose = 0
+  )
+```
+
+
+
+```{r}
+# loading run here
+load("neural_network_data.RData")
+
+nn_history_plot <- plot(history)
+nn_history_plot
+```
+
+The plot displays the training and validation loss and accuracy of a neural network over 300 epochs. The training has an early stopping mechanism where if the validation loss function does not decrease for over 50 epochs, it stops and goes back to the best weights. This prevents overfitting as the validation loss would inevitably increase. Initially, both loss and accuracy improve significantly, but they stabilize around 50 epochs, indicating that the model quickly learns from the training data. The training and validation curves remain close throughout, which suggests that the model generalizes well without signs of overfitting. 
+
+```{r}
+history
+```
+
+The final epoch achieved very impressive accuracy for the training data and validation data. 
+
+```{r}
+pred_nn <- predict(modelnn0, x_test_non0var_scaled)
+
+pred_nn_labels <- apply(pred_nn, 1, which.max) - 1 # labels are represented as integers: 0, 1, 2, 3
+
+```
+
+### Neural Network Test Error
+
+```{r}
+y_test <- test_data$y
+
+nn_error0 <- mean(y_test_integer != pred_nn_labels)
+```
+
+
+```{r}
+print(nn_error)
+```
+
+#### Confusion Matrix
+
+```{r}
+cm_nn0 <- confusionMatrix(reference = factor(y_test_integer), data = factor(pred_nn_labels))
+cm_nn
+```
+
+
+```{r}
+cm_nn_table <- cm_nn$table
+
+tpr <- fpr <- tnr <- fnr <- numeric(4)
+
+for (i in 1:4) {
+  tp <- cm_nn_table[i, i]
+  fn <- sum(cm_nn_table[i,]) - tp
+  fp <- sum(cm_nn_table[,i]) - tp
+  tn <- sum(cm_nn_table) - (tp + fn + fp)
+  
+  tpr[i] <- tp / (tp + fn)  # True Positive Rate
+  fpr[i] <- fp / (fp + tn)  # False Positive Rate
+  tnr[i] <- tn / (tn + fp)  # True Negative Rate
+  fnr[i] <- fn / (fn + tp)  # False Negative Rate
+}
+
+# Print the results
+cat("True Positive Rates (TPR):", tpr, "\n",
+    "False Positive Rates (FPR):", fpr, "\n",
+    "True Negative Rates (TNR):", tnr, "\n",
+    "False Negative Rates (FNR):", fnr, "\n")
+```
+
+This confusion matrix reveals that the neural network performs quite well overall, with an accuracy of 95.45%. Sensitivity (true positive rate) and specificity (true negative rate) are high for most classes, indicating the model's proficiency in correctly identifying true positives and true negatives. Class 0 (ARF/MOSF) and class 3 (COPD/CHF/Cirrhosis) show particularly high performance metrics, whereas class 2 (Coma) has a slightly lower sensitivity (78.13%) and positive predictive value (83.33%), indicating some challenges in correctly predicting this class. This is most likely due to the smaller amount of observations pertaining to class 2 (Coma) than the other classes as explained previously.
+
+# Conclusions
+
+```{r}
+model_names <- c("cm_bag", "cm_boost", "cm_e_mlogit", "cm_knn", "cm_lda",
+                 "cm_mlogit", "cm_nb", "cm_nn", "cm_qda", "cm_tree","cm_raw_lda",
+                 "cm_raw_qda", "cm_rf", "cm_trans_lda", "cm_xgb")
+
+results <- data.frame(Model = character(), Accuracy = numeric(),
+                      Lower_CI = numeric(), Upper_CI = numeric(), stringsAsFactors = FALSE)
+
+
+for (model in model_names) {
+  cm_table <- get(paste(model, "_table", sep = "")) 
+  acc <- sum(diag(cm_table)) / sum(cm_table)
+  se <- sqrt(acc * (1 - acc) / sum(cm_table))
+  #ci_lower <- acc - 1.96 * se
+  #ci_upper <- acc + 1.96 * se
+  
+  
+  results <- rbind(results, data.frame(Model = sub("cm_", "", model), Accuracy = acc))
+}
+
+results$Model <- factor(results$Model)
+
+results <- results[order(-results$Accuracy), ]
+
+results$Model <- factor(results$Model, levels = results$Model)
+
+print(results)
+
+```
+
+```{r}
+
+# plotting the accuracies with confidence intervals
+results_plot <- ggplot(results, aes(x = Model, y = Accuracy)) +
+  #geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.2, color = "blue") +
+  geom_point(color = "red") +
+  coord_flip() +
+  theme_bw() +
+  labs(title = "Model Accuracy Comparison", x = "Model", y = "Accuracy")
+
+results_plot
+```
+
+## Plotting
+
+The models achieved the following errors from the 10% test set:
+
+```{r}
+test_error_text <- paste("KNN:", round(knn_test_error, 4), "\n",
+  "\n",
+  "Raw LDA:", round(lda_raw_test_error, 4), "\n",
+  "Non-Binary LDA:", round(lda_test_error, 4), "\n",
+  "Transformed LDA:", round(lda_trans_test_error, 4), "\n",
+  "\n",
+  "Raw QDA:", round(qda_raw_test_error, 4), "\n",
+  "Non-Binary QDA:", round(qda_test_error, 4), "\n",
+  "\n",
+  "Naive Bayes:", round(nb_error, 4), "\n",
+  "\n",
+  "Multinomial Logistic:", round(multi_logit_error, 4), "\n",
+  "Enhanced Multinomial Logistic:", round(multi_logit_e_error, 4), "\n",
+  "\n",
+  "Decision Tree:", round(tree_error, 4), "\n",
+  "\n",
+  "Bagging:", round(bag_error, 4), "\n",
+  "\n",
+  "Random Forest:", round(rf_error, 4), "\n",
+  "\n",
+  "Boosting:", round(boost_error, 4), "\n",
+  "\n",
+  "XGBoost:", round(xgb_error, 4), "\n",
+  "\n",
+  "Neural Network:", round(nn_error, 4), "\n",
+  sep = " "  
+)
+
+cat(test_error_text)
+
+
+```
+
+In the exploration of various machine learning models applied to a complex dataset, empirical results often diverge from theoretical expectations, underlining the importance of practical validation. This analysis highlights how models like Linear Discriminant Analysis (LDA) and Quadratic Discriminant Analysis (QDA), each with distinct assumptions about data structure, can yield surprising results. Notably, LDA, despite failing the Box M test for equal covariance—an assumption for this model—outperformed QDA, which is theoretically more flexible by allowing unique covariances for each class. This counterintuitive outcome suggests that the simplicity and reduced complexity of LDA might enhance its generalizability and robustness in practical scenarios.
+
+Interestingly, the inclusion of binary variables in LDA led to an even better performance, achieving a test set error of 0.1346, which is counterintuitive given the model's assumptions of normal distribution and common covariance. This could imply that the discriminative power provided by the binary variables significantly outweighs the detriments from violating theoretical assumptions, boosting the model’s effectiveness.
+
+Boosting, as an ensemble method, demonstrated its prowess by achieving the lowest test set error at 0.0435, underscoring its ability to iteratively correct misclassifications and build a strong predictive model. However, the superior performance of Boosting comes at the cost of increased computational demand, evidenced by the lengthy cross-validation process. In contrast, XGBoost, which is an optimized form of gradient boosting, offers a substantial reduction in training time without sacrificing too much accuracy, as shown by its test set error of 0.06. It integrates advanced features such as parallel processing and tree pruning, making it a more efficient option.
+
+Neural Networks also performed exceptionally well, with a test set error of 0.0497, nearly matching Boosting. Their ability to model complex, nonlinear relationships through deep learning structures, however, requires considerable computational resources, though not as intensive as traditional Boosting.
+
+Multinomial Logistic Regression provided a surprisingly effective balance between computational efficiency and accuracy, with the Raw version logging a test set error of 0.0952 and the Enhanced version slightly higher at 0.1139. The rapid computation times make it an attractive model for situations where speed is crucial.
+
+Other models like Bagging and Random Forest showed varying degrees of effectiveness, with Random Forest notably not performing as well as Bagging, contrary to usual expectations. Bagging’s test set error stood at 0.1615, surpassing Random Forest's 0.207, suggesting that in some cases, simpler ensemble approaches might yield better results than more complex ones.
+
+This comprehensive analysis not only delineates the strengths and weaknesses of each model but also emphasizes the critical need for aligning model choice with specific data characteristics and project requirements. While advanced models like Boosting and Neural Networks offer high accuracy, simpler models like Multinomial Logistic Regression can provide substantial predictive power more swiftly, demonstrating that the most sophisticated model is not always the most suitable one.
+
+```{r, include = FALSE}
+# save(
+#   cm_bag,
+#   cm_boost,
+#   cm_e_mlogit,
+#   cm_knn,
+#   cm_lda,
+#   cm_mlogit,
+#   cm_nb,
+#   cm_nn,
+#   cm_qda,
+#   cm_raw_lda,
+#   cm_raw_qda,
+#   cm_rf,
+#   cm_trans_lda,
+#   cm_xgb,
+#   cm_tree,
+# 
+#   cm_bag_table,
+#   cm_boost_table,
+#   cm_e_mlogit_table,
+#   cm_knn_table,
+#   cm_lda_table,
+#   cm_mlogit_table,
+#   cm_nb_table,
+#   cm_nn_table,
+#   cm_qda_table,
+#   cm_raw_lda_table,
+#   cm_raw_qda_table,
+#   cm_rf_table,
+#   cm_trans_lda_table,
+#   cm_xgb_table,
+#   cm_tree_table,
+# 
+#   knn_test_error,
+#   lda_raw_test_error,
+#   lda_test_error,
+#   lda_trans_test_error,
+#   qda_raw_test_error,
+#   qda_test_error,
+#   nb_error,
+#   multi_logit_error,
+#   multi_logit_e_error,
+#   bag_error,
+#   rf_error,
+#   boost_error,
+#   xgb_error,
+#   nn_error,
+#   tree_error,
+# 
+# file = "qualitative_outputs.RData"
+# )
+# 
+# save(
+#   knn_fit,
+# 
+#   lda_raw_fit,
+#   lda_fit,
+#   lda_trans_fit,
+# 
+#   qda_fit,
+#   qda_raw_fit,
+# 
+#   nb_model,
+# 
+#   multi_logit,
+#   multi_logit_enhanced,
+# 
+# 
+#   tree_fit,
+#   pruned_tree,
+#   bag_train,
+#   rf_train,
+#   boost_model,
+#   xgb_final_model,
+# 
+#   modelnn,
+# 
+#   file = "qualitative_models.RData"
+# )
+# 
+# plots <- save(
+#   knn_plot,
+#   lda_histogram_plot,
+#   lda_qq_plot,
+#   lda_trans_histogram_plot,
+#   lda_trans_qq_plot,
+#   tree_plot,
+#   pruned_tree_plot,
+#   boost_plot,
+#   xgb_plot,
+#   nn_history_plot,
+#   results_plot,
+#   file = "plots.RData"
+# )
+
+# save(
+#   cm_nn,
+#   nn_error,
+#   modelnn,
+#   history,
+#   file = "neural_network_data.RData"
+# )
+```
+
+
+

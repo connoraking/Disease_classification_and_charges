@@ -202,4 +202,15 @@ support2 %>%
   arrange(desc(charges))
 ```
 
-The outliers don't seem to scream anything out of the ordinary in regards to the other variables so misinput is unlikely.
+The outliers don't seem to scream anything out of the ordinary in regards to the other variables so mis-input is unlikely.
+
+
+```{r}
+numeric_cols <- support2 %>% select_if(is.numeric)
+
+corr_charges <- sapply(numeric_cols, function(x) cor(support2$charges, x, use = 'complete.obs'))
+
+sort(corr_charges)
+```
+
+Ignoring the `totmcst` and `totcst` columns, there is no discernible pattern behind the egregious outliers. Thus, we will trim the `support2` dataset 
