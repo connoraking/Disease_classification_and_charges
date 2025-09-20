@@ -6,6 +6,7 @@ This study utilizes the [SUPPORT2 dataset](https://archive.ics.uci.edu/dataset/8
 
 ![Model Final Results](qualitative_part/model_final_results.png)
 
+Visit in-depth report [here](qualitative_part/qualitative_modeling_report.html)
 
 # Hospital Charges
 Predicting total hospital charges of critically ill patients via disease and several other health predictors. 
